@@ -1,0 +1,350 @@
+---
+title: "DATA 621: Home Work 01"
+author: "Critical Thinking Group 1"
+date: "02/26/2021"
+output:
+  rmtrainormats::readthedown
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Libraries  
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE}
+library(knitr)
+library(tidyverse)
+library(reshape2)
+library(VIM)
+library(corrplot)
+library(naniar)
+library(tidyverse)
+library(skimr)
+library(funModeling)
+library(fastDummies)
+```
+
+
+# Data 
+
+In this homework assignment, we are asked to  explore, analyze and model a baseball data set containing approximately 2200 records. Each record represents a professional baseball team from the years 1871 to 2006 inclusive. Each record has the performance of the team for the given year, with all of the statistics adjusted to match the performance of a 162 game season.   
+
+Our objective is to build a multiple linear regression model on the training data to predict the number of wins for the team based on the variables given or variables that derive from the variables provided. Below is a short description of the variables of interest in the data set:
+
+
+# Load Data
+
+```{r collect_data}
+
+
+
+test <- read_csv("https://raw.githubusercontent.com/agersowitz/DATA-621/main/mb_eval.csv")
+test <- data.frame(eval)
+
+yr <- read_csv("https://raw.githubusercontent.com/agersowitz/DATA-621/main/year%20predict.csv")
+yr <- data.frame(yr)
+
+train <- read_csv("https://raw.githubusercontent.com/agersowitz/DATA-621/main/mb_train.csv")
+train <- data.frame(train)
+
+```
+
+```{r}
+skim(train)
+```
+
+
+As the first step in data exploration I use the skim function form the skimr package. This shows missing data, mean, percentiles and a histogram of the distribution of all of the data fields all in one output.
+
+We can see there are numerous fields that are missing data. We will replace these values with the median value for that field.
+
+
+```{r}
+str(train)
+```
+All the variables are integer and TEAM_BATTING_HBP has a lot of missing values. Let's look at the summary of the data.
+
+```{r}
+summary(train)
+```
+```{r message=F, warning=F}
+g = melt(train)
+ggplot(g, aes(x= value)) + 
+   geom_density(fill='blue') + 
+   facet_wrap(~variable, scales = 'free') +
+   theme_light()
+```
+
+Check for rows with missing values
+
+```{r message=F, warning=F}
+sum(complete.cases(train))
+```
+Check how many rows with missing values in terms of percentage
+
+```{r message=F, warning=F}
+sum(complete.cases(train))/(nrow(train)) *100
+```
+
+
+```{r message=F, warning=F}
+missing_plot <- aggr(train, col=c('blue','red'),numbers=TRUE, sortVars=TRUE,labels=names(train), cex.axis=.7,gap=3, ylab=c("Missing data","Pattern"))
+```
+
+Six of the variable has missing values.  
+
+# Outliers
+
+```{r, message=FALSE,warning=FALSE, fig.width=10, fig.height= 9}
+ggplot(stack(train[,-1]), aes(x = ind, y = values, fill=ind)) + 
+  geom_boxplot(outlier.colour = "red",  outlier.alpha=.3) +
+  coord_cartesian(ylim = c(0, 1000)) +
+  theme_light()+
+  theme(axis.text.x=element_text(angle=45, hjust=1)) 
+  
+```
+
+# Correlations 
+
+```{r message=FALSE, warning=FALSE,fig.width=10, fig.height= 9}
+train %>% 
+  cor(., use = "complete.obs") %>%
+  corrplot(., method = "color", type = "upper", tl.col = "black", tl.cex=.8, diag = FALSE)
+```
+
+
+```{r}
+cleanup <- function(df, outlier_mult = 1.5) {  
+  #Outlier_mult is what mutliple of the IQR a value needs to be away from the median to be considered an outlier
+  
+  #Change NA to median where appropriate
+  df<- df %>% replace_na(list(TEAM_BATTING_SO = median(df$TEAM_BATTING_SO[(is.na(df$TEAM_BATTING_SO) == FALSE)]),
+                               TEAM_BASERUN_SB = median(df$TEAM_BASERUN_SB[(is.na(df$TEAM_BASERUN_SB) == FALSE)]),
+                               TEAM_BASERUN_CS = median(df$TEAM_BASERUN_CS[(is.na(df$TEAM_BASERUN_CS) == FALSE)]),
+                               TEAM_PITCHING_SO = median(df$TEAM_PITCHING_SO[(is.na(df$TEAM_PITCHING_SO) == FALSE)]),
+                               TEAM_FIELDING_DP = median(df$TEAM_FIELDING_DP[(is.na(df$TEAM_FIELDING_DP) == FALSE)])
+                               ))
+  
+  #Drop column with too many NA
+  df$TEAM_BATTING_HBP  <- NULL
+  
+  #Removes with outliers
+  i = 1 #Skip the index
+  k = 0 #Count of outliers changed
+  while (i < length(colnames(df))) {   #Column cycle
+    
+    i = i+1
+    iqr= IQR(df[,i])
+    med = median(df[,i])
+    max_range = c(med - iqr * outlier_mult, med + iqr * outlier_mult)  #Defines the maximum range, outside of which values are considered outliers
+      
+    j = 0
+    while (j < length(df[,i])) { #Row cycle
+      j = j + 1
+      
+      if (df[j,i] < max_range[1] || df[j,i] > max_range[2] ) {
+        
+        df[j,i] <- med #Sets outliers to median column value 
+        k = k + 1
+      }
+    }
+  }
+  
+  print(paste("set",k, "outliers to median"))
+  return(df)
+}
+
+cleanup(train)
+
+#Change NA to median where appropriate
+  train<- train %>% replace_na(list(TEAM_BATTING_SO = median(train$TEAM_BATTING_SO[(is.na(train$TEAM_BATTING_SO) == FALSE)]),
+                               TEAM_BASERUN_SB = median(train$TEAM_BASERUN_SB[(is.na(train$TEAM_BASERUN_SB) == FALSE)]),
+                               TEAM_BASERUN_CS = median(train$TEAM_BASERUN_CS[(is.na(train$TEAM_BASERUN_CS) == FALSE)]),
+                               TEAM_PITCHING_SO = median(train$TEAM_PITCHING_SO[(is.na(train$TEAM_PITCHING_SO) == FALSE)]),
+                               TEAM_FIELDING_DP = median(train$TEAM_FIELDING_DP[(is.na(train$TEAM_FIELDING_DP) == FALSE)])
+                               ))
+  
+  #Drop column with too many NA
+  train$TEAM_BATTING_HBP  <- NULL
+
+```
+
+##Build Models
+
+INTERACTION TERMS BY ERA
+
+
+```{r build_model}
+
+
+
+
+
+##correlation_table(train, target = "TARGET_WINS")
+
+#true<-lm(TARGET_WINS ~ hr_era+hr_era_p, data = train)
+
+train$X2B=(train$TEAM_BATTING_2B/162)
+train$X3B=(train$TEAM_BATTING_3B/162)
+train$BB=((train$TEAM_BATTING_BB/162)+(train$TEAM_PITCHING_BB/162))/2
+train$SO=((train$TEAM_BATTING_SO/162)+(train$TEAM_PITCHING_SO/162))/2
+
+year<-lm(Year ~ X2B+X3B+BB+SO, data = yr)
+
+#summary(year)
+#plot(year)
+
+predicted_year<- predict(year, newdata = train)
+
+train<-cbind(train,predicted_year)
+
+
+
+train$era = ifelse(train$predicted_year>= 1994,"Modern",
+                   ifelse(train$predicted_year> 1977 & train$predicted_year<1993, "FreeAgency",
+                   ifelse(train$predicted_year> 1961 & train$predicted_yea<1976, "Expansion",
+                   ifelse(train$predicted_year> 1942 & train$predicted_yea<1960, "Integration",
+                    ifelse(train$predicted_year> 1920 & train$predicted_yea<1941, "LiveBall",
+                          "DeadBall")))))
+
+train<-dummy_cols(train,select_columns=c("era"))
+
+#skim(train)
+
+
+train$H_era_m <- (train$TEAM_BATTING_H)*train$era_Modern
+train$H_era_fa <- (train$TEAM_BATTING_H)*train$era_FreeAgency
+train$H_era_e <- (train$TEAM_BATTING_H)*train$era_Expansion
+train$H_era_i <- (train$TEAM_BATTING_H)*train$era_Integration
+train$H_era_lb <- (train$TEAM_BATTING_H)*train$era_LiveBall
+train$H_era_db <- (train$TEAM_BATTING_H)*train$era_DeadBall
+
+train$H_era_m_p <- (train$TEAM_PITCHING_H)*train$era_Modern
+train$H_era_fa_p <- (train$TEAM_PITCHING_H)*train$era_FreeAgency
+train$H_era_e_p <- (train$TEAM_PITCHING_H)*train$era_Expansion
+train$H_era_i_p <- (train$TEAM_PITCHING_H)*train$era_Integration
+train$H_era_lb_p <- (train$TEAM_PITCHING_H)*train$era_LiveBall
+train$H_era_db_p <- (train$TEAM_PITCHING_H)*train$era_DeadBall
+
+train$bb_era_m <- (train$TEAM_BATTING_BB)*train$era_Modern
+train$bb_era_fa <- (train$TEAM_BATTING_BB)*train$era_FreeAgency
+train$bb_era_e <- (train$TEAM_BATTING_BB)*train$era_Expansion
+train$bb_era_i <- (train$TEAM_BATTING_BB)*train$era_Integration
+train$bb_era_lb <- (train$TEAM_BATTING_BB)*train$era_LiveBall
+train$bb_era_db <- (train$TEAM_BATTING_BB)*train$era_DeadBall
+
+train$bb_era_m_p <- (train$TEAM_PITCHING_BB)*train$era_Modern
+train$bb_era_fa_p <- (train$TEAM_PITCHING_BB)*train$era_FreeAgency
+train$bb_era_e_p <- (train$TEAM_PITCHING_BB)*train$era_Expansion
+train$bb_era_i_p <- (train$TEAM_PITCHING_BB)*train$era_Integration
+train$bb_era_lb_p <- (train$TEAM_PITCHING_BB)*train$era_LiveBall
+train$bb_era_db_p <- (train$TEAM_PITCHING_BB)*train$era_DeadBall
+
+train$hr_era_m <- (train$TEAM_BATTING_HR)*train$era_Modern
+train$hr_era_fa <- (train$TEAM_BATTING_HR)*train$era_FreeAgency
+train$hr_era_e <- (train$TEAM_BATTING_HR)*train$era_Expansion
+train$hr_era_i <- (train$TEAM_BATTING_HR)*train$era_Integration
+train$hr_era_lb <- (train$TEAM_BATTING_HR)*train$era_LiveBall
+train$hr_era_db <- (train$TEAM_BATTING_HR)*train$era_DeadBall
+
+train$hr_era_m_p <- (train$TEAM_PITCHING_HR)*train$era_Modern
+train$hr_era_fa_p <- (train$TEAM_PITCHING_HR)*train$era_FreeAgency
+train$hr_era_e_p <- (train$TEAM_PITCHING_HR)*train$era_Expansion
+train$hr_era_i_p <- (train$TEAM_PITCHING_HR)*train$era_Integration
+train$hr_era_lb_p <- (train$TEAM_PITCHING_HR)*train$era_LiveBall
+train$hr_era_db_p <- (train$TEAM_PITCHING_HR)*train$era_DeadBall
+
+train$so_era_m <- (train$TEAM_BATTING_SO)*train$era_Modern
+train$so_era_fa <- (train$TEAM_BATTING_SO)*train$era_FreeAgency
+train$so_era_e <- (train$TEAM_BATTING_SO)*train$era_Expansion
+train$so_era_i <- (train$TEAM_BATTING_SO)*train$era_Integration
+train$so_era_lb <- (train$TEAM_BATTING_SO)*train$era_LiveBall
+train$so_era_db <- (train$TEAM_BATTING_SO)*train$era_DeadBall
+
+train$so_era_m_p <- (train$TEAM_PITCHING_SO)*train$era_Modern
+train$so_era_fa_p <- (train$TEAM_PITCHING_SO)*train$era_FreeAgency
+train$so_era_e_p <- (train$TEAM_PITCHING_SO)*train$era_Expansion
+train$so_era_i_p <- (train$TEAM_PITCHING_SO)*train$era_Integration
+train$so_era_lb_p <- (train$TEAM_PITCHING_SO)*train$era_LiveBall
+train$so_era_db_p <- (train$TEAM_PITCHING_SO)*train$era_DeadBall
+
+train$x2b_era_m <- (train$TEAM_BATTING_2B)*train$era_Modern
+train$x2b_era_fa <- (train$TEAM_BATTING_2B)*train$era_FreeAgency
+train$x2b_era_e <- (train$TEAM_BATTING_2B)*train$era_Expansion
+train$x2b_era_i <- (train$TEAM_BATTING_2B)*train$era_Integration
+train$x2b_era_lb <- (train$TEAM_BATTING_2B)*train$era_LiveBall
+train$x2b_era_db <- (train$TEAM_BATTING_2B)*train$era_DeadBall
+
+train$x3b_era_m <- (train$TEAM_BATTING_3B)*train$era_Modern
+train$x3b_era_fa <- (train$TEAM_BATTING_3B)*train$era_FreeAgency
+train$x3b_era_e <- (train$TEAM_BATTING_3B)*train$era_Expansion
+train$x3b_era_i <- (train$TEAM_BATTING_3B)*train$era_Integration
+train$x3b_era_lb <- (train$TEAM_BATTING_3B)*train$era_LiveBall
+train$x3b_era_db <- (train$TEAM_BATTING_3B)*train$era_DeadBall
+
+train$sb_era_m <- (train$TEAM_BASERUN_SB)*train$era_Modern
+train$sb_era_fa <- (train$TEAM_BASERUN_SB)*train$era_FreeAgency
+train$sb_era_e <- (train$TEAM_BASERUN_SB)*train$era_Expansion
+train$sb_era_i <- (train$TEAM_BASERUN_SB)*train$era_Integration
+train$sb_era_lb <- (train$TEAM_BASERUN_SB)*train$era_LiveBall
+train$sb_era_db <- (train$TEAM_BASERUN_SB)*train$era_DeadBall
+
+train$cs_era_m <- (train$TEAM_BASERUN_CS)*train$era_Modern
+train$cs_era_fa <- (train$TEAM_BASERUN_CS)*train$era_FreeAgency
+train$cs_era_e <- (train$TEAM_BASERUN_CS)*train$era_Expansion
+train$cs_era_i <- (train$TEAM_BASERUN_CS)*train$era_Integration
+train$cs_era_lb <- (train$TEAM_BASERUN_CS)*train$era_LiveBall
+train$cs_era_db <- (train$TEAM_BASERUN_CS)*train$era_DeadBall
+
+
+train$e_era_m <- (train$TEAM_FIELDING_E)*train$era_Modern
+train$e_era_fa <- (train$TEAM_FIELDING_E)*train$era_FreeAgency
+train$e_era_e <- (train$TEAM_FIELDING_E)*train$era_Expansion
+train$e_era_i <- (train$TEAM_FIELDING_E)*train$era_Integration
+train$e_era_lb <- (train$TEAM_FIELDING_E)*train$era_LiveBall
+train$e_era_db <- (train$TEAM_FIELDING_E)*train$era_DeadBall
+
+
+train$dp_era_m <- (train$TEAM_FIELDING_DP)*train$era_Modern
+train$dp_era_fa <- (train$TEAM_FIELDING_DP)*train$era_FreeAgency
+train$dp_era_e <- (train$TEAM_FIELDING_DP)*train$era_Expansion
+train$dp_era_i <- (train$TEAM_FIELDING_DP)*train$era_Integration
+train$dp_era_lb <- (train$TEAM_FIELDING_DP)*train$era_LiveBall
+train$dp_era_db <- (train$TEAM_FIELDING_DP)*train$era_DeadBall
+
+
+
+era<-lm(TARGET_WINS ~ H_era_m+H_era_fa+H_era_e+H_era_i+H_era_lb+H_era_db+
+                      H_era_m_p+H_era_fa_p+H_era_e_p+H_era_i_p+H_era_lb_p+H_era_db_p+
+          
+                      bb_era_m+bb_era_fa+bb_era_e+bb_era_i+bb_era_lb+bb_era_db+
+                      bb_era_m_p+bb_era_fa_p+bb_era_e_p+bb_era_i_p+bb_era_lb_p+bb_era_db_p+
+          
+                      hr_era_m+hr_era_fa+hr_era_e+hr_era_i+hr_era_lb+hr_era_db+
+                      hr_era_m_p+hr_era_fa_p+hr_era_e_p+hr_era_i_p+hr_era_lb_p+hr_era_db_p+
+          
+                      so_era_m+so_era_fa+so_era_e+so_era_i+so_era_lb+so_era_db+
+                      so_era_m_p+so_era_fa_p+so_era_e_p+so_era_i_p+so_era_lb_p+so_era_db_p+
+          
+                      x2b_era_m+x2b_era_fa+x2b_era_e+x2b_era_i+x2b_era_lb+x2b_era_db+
+          
+                      x3b_era_m+x3b_era_fa+x3b_era_e+x3b_era_i+x3b_era_lb+x3b_era_db+
+          
+                      e_era_m+e_era_fa+e_era_e+e_era_i+e_era_lb+e_era_db+
+          
+                      dp_era_m+dp_era_fa+dp_era_e+dp_era_i+dp_era_lb+dp_era_db+
+          
+                      sb_era_m+sb_era_fa+sb_era_e+sb_era_i+sb_era_lb+sb_era_db
+        
+          
+          
+                      
+          , data = train)
+
+summary(era)
+plot(era)
+
+
+```
