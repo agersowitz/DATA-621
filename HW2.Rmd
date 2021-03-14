@@ -1,0 +1,158 @@
+---
+title: "DATA 621 HW2"
+author: "Adam Gersowitz"
+date: "3/14/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE}
+library(readr)
+library(dplyr)
+library(kableExtra)
+library(plotly)
+library(DescTools)
+
+df <- read_csv("https://raw.githubusercontent.com/agersowitz/DATA-621/main/classification.txt")
+df <- data.frame(df)
+
+
+table(df$class,df$scored.class)%>%
+  kbl(caption = "Confusion Matrix") %>%
+  kable_classic(full_width = F, html_font = "Cambria")%>%
+  kable_styling(latex_options = "HOLD_position")
+
+```
+
+The confusion Matrix above shows the occurrence of True Negatives (119), False Positives (5), False Negatives (30), and True Positives (27).
+
+
+
+
+```{r 3}
+
+classification_metrics <- function(df){
+          TP <- nrow(filter(df,class==1 & scored.class==1))
+          TN<- nrow(filter(df,class==0 & scored.class==0))
+          FP<- nrow(filter(df,class==0 & scored.class==1))
+          FN<- nrow(filter(df,class==1 & scored.class==0))
+          Acc<- (TP+TN)/(TP+FP+TN+FN)
+          CER<- (FP+FN)/(TP+FP+TN+FN)
+          pre<- (TP)/(TP+FP)
+          sens<-(TP)/(TP+FN)
+          spec<-(TN)/(TN+FP)
+          f1<-(2*pre*sens)/(pre+sens)
+          if (Acc+CER==1){
+            stmnt <- paste0("\nSuccess. Accuracy and Classification Error Rate sum to 1.")
+          } else {
+            stmnt <- paste0("\nFailiure. Accuracy and Classification Error Rate do not sum to 1.")
+
+          }
+          return(cat("Classification Metrics",
+                     "\nAccuracy = ", round(Acc,3),
+                "\nClassification Error Rate = ", round(CER,3),
+                stmnt,
+                "\nPrecison = ",round(pre,3),
+                "\nSensitivity = ",round(sens,3),
+                "\nSpecificity = ",round(spec,3),
+                "\nF1 Score = ",round(f1,3),"\n\n"
+                        
+                        
+                        ))
+}
+
+roc_curve <-function(df){
+x<-c()
+y<-c()
+rx<-0
+ry<-0
+for (i in 1:nrow(df)){
+  yc<-nrow(filter(df, scored.class == 1))
+  xc<-nrow(df)
+  col<-match("scored.class",names(df))
+  if (df[i,col] == 1){
+    ry<-ry+1
+    rx<-rx
+  }else{
+      ry<-ry
+      rx<-rx+1
+    }
+  sens<-ry/yc
+  specm1<-rx/xc
+  x<-append(x,specm1)
+  y<-append(y,sens)
+  
+  dfr<-as.data.frame(cbind(x,y))
+  auc<-AUC(x=x,y=y,from = 0, to = 1)
+  
+  
+ 
+  
+}
+
+ plot_ly(dfr, x = ~x, y = ~y, type = 'scatter', mode = 'lines') %>% 
+  layout(title = paste0("ROC Curve for Chosen Dataset"),
+         annotations = list(text = paste0("Area Under Curve = ",round(auc,3)),  x = .75, y = .25,showarrow=FALSE ),
+         xaxis = list(showgrid = FALSE, title = "1-Specificity (false positive rate)"),
+         yaxis = list(showgrid = FALSE, title = "Sensitivity (true positive rate)"))
+ 
+}
+
+
+
+classification_metrics(df)
+roc_curve(df)
+```
+
+## 9) Bounds of F1 Score
+
+$$Precision =\frac{TP}{TP+FP}$$
+$$Sensitivity=\frac{TP}{TP+FN}$$
+
+$$F1 Score=\frac{2*Precision*Sensitivity}{Precision+Sensitivity}$$
+
+Considering the formulas above we know that Precision and Sensitivity Will be between 0 and 1 (if TP = 0 then they will be 0 and if FN or FP = 0 then they will = 1). So after plugging these minimum and maximum possible values into the F1 Score we will get our range of values.
+
+$$F1 Score=\frac{2*Precision*Sensitivity}{Precision+Sensitivity}=\frac{2*0*0}{0+0}=0$$
+$$F1 Score=\frac{2*Precision*Sensitivity}{Precision+Sensitivity}=\frac{2*1*1}{1+1}=\frac{2}{2}=1$$
+
+
+```{r, message=FALSE}
+library(caret)
+
+confusionMatrix(data=as.factor(df$scored.class),reference=as.factor(df$class), positive = "1")
+sensitivity(data=as.factor(df$scored.class),reference=as.factor(df$class), positive = "1")
+specificity(data=as.factor(df$scored.class),reference=as.factor(df$class), negative = "0")
+```
+
+My numbers seem to line up with the built in functions.
+
+
+```{r, message=FALSE}
+library(pROC)
+
+roc1<-roc(df$class,df$scored.probability)
+plot(roc1)
+```
+
+
+
+
+references : https://acutecaretesting.org/en/articles/roc-curves-what-are-they-and-how-are-they-used#:~:text=An%20ROC%20curve%20shows%20the,TP%2F(TP%2BFN))
+
+
+
+
+
+
+
+
+
+
+
