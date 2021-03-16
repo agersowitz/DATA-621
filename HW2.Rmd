@@ -4,7 +4,6 @@ author: "Adam Gersowitz"
 date: "3/14/2021"
 output:
   html_document: default
-  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -33,7 +32,7 @@ table(df$class,df$scored.class)%>%
 The confusion Matrix above shows the occurrence of True Negatives (119), False Positives (5), False Negatives (30), and True Positives (27).
 
 
-
+## Questions 3-8 Are answered in the classification_metrics function below
 
 ```{r 3}
 
@@ -67,43 +66,52 @@ classification_metrics <- function(df){
                         ))
 }
 
+
+
+
+
 roc_curve <-function(df){
 x<-c()
 y<-c()
+true_class = df[,"class"]
+probabilities = df[,"scored.probability"]
+thresholds = seq(0,1,0.01) 
 rx<-0
 ry<-0
-for (i in 1:nrow(df)){
-  yc<-nrow(filter(df, scored.class == 1))
-  xc<-nrow(df)
-  col<-match("scored.class",names(df))
-  if (df[i,col] == 1){
-    ry<-ry+1
-    rx<-rx
-  }else{
-      ry<-ry
-      rx<-rx+1
+for (threshold in thresholds) {
+    
+    predicted_class <- c()
+    for (val in probabilities) {
+      
+      if (val > threshold) {
+        predicted_class <- c(predicted_class,1) }
+        
+      else {
+        predicted_class <- c(predicted_class,0) }
+    
     }
-  sens<-ry/yc
-  specm1<-rx/xc
-  x<-append(x,specm1)
-  y<-append(y,sens)
-  
-  dfr<-as.data.frame(cbind(x,y))
-  auc<-AUC(x=x,y=y,from = 0, to = 1)
-  
-  
- 
-  
+    
+    df2<-as.data.frame(cbind(true_class,predicted_class))
+    TP <- nrow(filter(df2,true_class==1 & predicted_class==1))
+    TN<- nrow(filter(df2,true_class==0 & predicted_class==0))
+    FP<- nrow(filter(df2,true_class==0 & predicted_class==1))
+    FN<- nrow(filter(df2,true_class==1 & predicted_class==0))
+    specm1<-1-((TN)/(TN+FP))
+    sens<-(TP)/(TP+FN)
+    x<-append(x,specm1)
+    y<-append(y,sens)
+    
+    
 }
-
- plot_ly(dfr, x = ~x, y = ~y, type = 'scatter', mode = 'lines') %>% 
+    dfr<-as.data.frame(cbind(x,y))
+    auc<-AUC(x=x,y=y,from = 0, to = 1)
+    
+    plot_ly(dfr, x = ~x, y = ~y, type = 'scatter', mode = 'lines') %>% 
   layout(title = paste0("ROC Curve for Chosen Dataset"),
          annotations = list(text = paste0("Area Under Curve = ",round(auc,3)),  x = .75, y = .25,showarrow=FALSE ),
          xaxis = list(showgrid = FALSE, title = "1-Specificity (false positive rate)"),
          yaxis = list(showgrid = FALSE, title = "Sensitivity (true positive rate)"))
- 
 }
-
 
 
 classification_metrics(df)
