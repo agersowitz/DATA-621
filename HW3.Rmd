@@ -1,0 +1,168 @@
+---
+title: "DATA 621 HW 3"
+author: "Adam Gersowitz"
+date: "4/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Collect Data
+
+```{r collect_data}
+
+library(tidyverse)
+
+tr <- read_csv("https://raw.githubusercontent.com/agersowitz/DATA-621/main/HW3%20train.csv")
+tr <- data.frame(tr)
+
+
+ev <- read_csv("https://raw.githubusercontent.com/agersowitz/DATA-621/main/HW3%20Eval.csv")
+ev <- data.frame(ev)
+
+
+
+```
+
+##Data Exploration
+
+As the first step in data exploration I use the skim function form the skimr package. This shows missing data, mean, percentiles and a histogram of the distribution of all of the data fields all in one output.
+
+We can see there are no fields with missing data so we will not have to address this issue
+
+Next we will use the funModeling package to produce a quick correlation table with the target variable to determine if there are any noteworthy features in the model. We can see that the most highly correlated stats with the target are nox, age, rad, tax, and indus.
+
+```{r data_exploration}
+
+library(funModeling)
+library(skimr)
+
+
+summary(tr)
+skim(tr)
+correlation_table(data=tr, target="target")
+
+```
+
+##Data Preparation
+
+Since there are no null values we won't need to worry about replacing them. We will change the datatype a few variables. 
+
+We will create a few variables based off off potential interactions form the given fields. First I will create a field called business that attempts to take the tax valuation of buildings and the proportion of non residential areas to identify suburbs with large retail centers.
+
+The next variable we will create will be called apartment. This will attempt to take the property tax rates of homes and the average number of rooms per dwelling to identify areas with a high proportion of large homes.
+
+We will create a variable called Pollution, I will take the proportion of non-retail business and multiply it by the nitrous oxide concentration to get an estimate on areas where the non-retail business acreage is occupied by polluting industries.
+
+After reviewing the data we noticed that a large number of the zn records = 0. So we will create a dummy variable called zndum to show if the zn had >0 of a proportion of zoning for large lots.
+
+Since the number of rooms can vary greatly between areas and is a continuous variable we will log transform that variable to smooth it out.
+
+The rad index for accessibility to radial highways seems to have a lot of values under 10 and a lot of values at 24 so I will create a dummy variable called raddum to put these values into buckets.
+
+In an attempt to find schools that have insufficient support and funding I will use the ptratio and lstat variables to determine areas with ladults with lower educaitonal attainment and low pupil to teacher ratios.
+
+```{r data_prep2}
+library(caTools)
+
+tr$target <- as.factor(tr$target)
+tr$cfas <- as.factor(tr$chas)
+
+tr$business<-tr$tax*(1-tr$indus)
+tr$apartment<-tr$rm/tr$tax
+tr$pollution<-tr$nox*tr$indus
+tr$zndum <- ifelse(tr$zn>0,1,0)
+tr$rmlog<-log(tr$rm)
+tr$raddum <- ifelse(tr$rad>23,1,0)
+tr$lstatptratio<-((1-tr$lstat)*tr$ptratio)#/tr$rm
+
+correlation_table(data=tr, target="target")
+
+#https://stackoverflow.com/questions/17200114/how-to-split-data-into-training-testing-sets-using-sample-function
+
+set.seed(2154)
+## 75% of the sample size
+smp_size <- floor(0.75 * nrow(tr))
+
+## set the seed to make your partition reproducible
+set.seed(123)
+train_ind <- sample(seq_len(nrow(tr)), size = smp_size)
+
+train <- tr[train_ind, ]
+test <- tr[-train_ind, ]
+
+
+```
+
+### Base model
+
+Below is a model of all variable including those created to get a benchmark. We will then work backward and only select the most impactful variables
+
+```{r}
+library(MASS)
+base <- glm(target~., data = train, family = "binomial")
+summary(base)
+
+
+back <- glm(target~nox+rm+rad+tax+ptratio+medv+business+apartment+pollution+rmlog, data = train, family = "binomial")
+summary(back)
+
+step <- glm(target~., data = train, family = "binomial") %>%
+  stepAIC(trace = FALSE)
+summary(step)
+
+```
+
+After working backwards we see the removal of a few variables does not lower with the residual deviance being much lower than the null deviance. We see that the stepwise AIC variable selection selects similar fields to those we selected while working backwards which has the lowest AIC of the 3 models.
+
+
+##Validating our Best Model
+```{r}
+
+test$business<-test$tax*(1-test$indus)
+test$apartment<-test$rm/test$tax
+test$pollution<-test$nox*test$indus
+test$zndum <- ifelse(test$zn>0,1,0)
+test$rmlog<-log(test$rm)
+test$raddum <- ifelse(test$rad>23,1,0)
+test$lstatptratio<-((1-test$lstat)*test$ptratio)#/test$rm
+
+test$predictions<-predict(step, test, type="response")
+test$predicted =  as.factor(ifelse(test$predictions >= 0.5, 1, 0))
+
+
+library(pROC)
+library(caret)
+confusionMatrix(test$predicted, test$target, positive = '1')
+proc = roc(test$target, test$predictions)
+plot(proc)
+print(proc$auc)
+```
+
+We find the stepwise model to be 98.29% accurate, have a very low p-value and auc = 0.9997.
+
+##Using Our Model to Predict the Evaluation Dataset
+
+Our predictions for the evaluation dataset are now contained in the Predicted variable within the ev dataframe.
+
+
+```{r}
+
+ev$business<-ev$tax*(1-ev$indus)
+ev$apartment<-ev$rm/ev$tax
+ev$pollution<-ev$nox*ev$indus
+ev$zndum <- ifelse(ev$zn>0,1,0)
+ev$rmlog<-log(ev$rm)
+ev$raddum <- ifelse(ev$rad>23,1,0)
+ev$lstatptratio<-((1-ev$lstat)*ev$ptratio)#/ev$rm
+
+ev$predictions<-predict(step, ev, type="response")
+ev$predicted =  as.factor(ifelse(ev$predictions >= 0.5, 1, 0))
+
+write.csv(ev, file = "evaluation_predictions.csv")
+
+```
+
+
