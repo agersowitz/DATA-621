@@ -1,0 +1,187 @@
+---
+title: "DATA 621 Final"
+author: "Adam Gersowitz"
+date: "05/13/2021"
+output:
+  html_document:
+    toc: yes
+    toc_depth: '2'
+    df_print: paged
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE,echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\newpage
+
+
+```{r, message=FALSE,warning=FALSE, echo=F}
+# loading libraries
+library(tidyverse)
+library(caTools)
+library(caret)
+library(pROC)
+library(knitr)
+library(naniar)
+library(reshape2)
+library(stats)
+library(corrplot)
+library(e1071)
+library(Amelia)
+library(jtools)
+library(performance)
+library(cvms)
+library(ROCR)
+library(MASS)
+library(funModeling)
+library(skimr)
+library(rnaturalearth)
+
+```
+
+
+
+
+# Data Exploration and Preparation
+
+## Load Input Datasets and Prep
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+load_chi2018 <- function() {
+  
+  df = read.csv("https://raw.githubusercontent.com/davidblumenstiel/CUNY-MSDS-DATA-621/main/Final_Project/chi-2018.csv")
+  
+  
+  x1 = df %>%
+    pivot_longer(
+      cols = starts_with("wat_"), 
+      names_to = "Year",
+      names_prefix = "wat_",
+      values_to = "water_score"
+    ) %>% 
+    select("Year", "water_score", "CountryName")
+  
+  
+  x2 = df %>%
+    pivot_longer(
+      cols = starts_with("san_"), 
+      names_to = "Year",
+      names_prefix = "san_",
+      values_to = "sanitation_score"
+    ) %>% 
+    select("Year", "sanitation_score", "CountryName")
+  
+  x3 = df %>%
+    pivot_longer(
+      cols = starts_with("chmort_"), 
+      names_to = "Year",
+      names_prefix = "chmort_",
+      values_to = "child_mortality"
+    ) %>% 
+    select("Year", "child_mortality", "CountryName")
+  
+  
+    
+  x4 = df %>%
+    pivot_longer(
+      cols = starts_with("mortality_"), 
+      names_to = "Year",
+      names_prefix = "mortality_",
+      values_to = "mortality_score"
+    ) %>% 
+    select("Year", "mortality_score", "CountryName")
+    
+  x5 = df %>%
+    pivot_longer(
+      cols = starts_with("CHI_v2018_"), 
+      names_to = "Year",
+      names_prefix = "CHI_v2018_",
+      values_to = "CHI_v2018"
+    ) %>% 
+    select("Year", "CHI_v2018", "CountryName")
+  
+  out = x1 %>% merge(x2, by = c("CountryName", "Year")) %>%
+    merge(x3, by = c("CountryName", "Year")) %>%
+    merge(x4, by = c("CountryName", "Year")) %>%
+    merge(x5, by = c("CountryName", "Year")) 
+}
+df <- load_chi2018()
+
+```
+
+## Numerical Summaries
+
+```{r}
+summary(df)
+```
+
+## Missing Data Check
+
+Missmap Plot illustrates there are missing values for CHI_v2018, child_mortality, mortality_score and water_score. We will remove the records that have missing data.
+
+```{r, message=FALSE, warning=FALSE,echo=FALSE}
+missmap(df, main="Missing Values") 
+colSums(is.na(df))%>% kable() 
+
+
+
+```
+
+
+
+
+
+
+
+
+## Correlation Plot
+
+Correlation Plot illustrates the relationship between the variables in the input dataset.
+
+
+```{r,message=FALSE,warning=FALSE,echo=FALSE}
+
+df<-df%>%drop_na()
+correlation_table(data=df, target="change_mortality") %>%
+  kable() 
+
+```
+
+
+
+##  Data Splitting
+
+The Input dataset is split into training and test data using createDataPartition function. The ratio of splitup is 75% for training and 25% for test data.
+
+```{r, warning=FALSE, message=FALSE,echo=FALSE}
+set.seed(1005)
+training_partition <- createDataPartition(df$change_mortality, p=0.75, list = FALSE, times=1)
+train <- df[training_partition, ]
+test <- df[-training_partition, ]
+
+train
+
+```
+
+
+# Build Models
+
+## Stepwise Multiple Linear Regression
+
+```{r, message=FALSE, warning=FALSE,echo=FALSE}
+
+model<- lm(child_mortality~CountryName+sanitation.score.water.score
+           , data = train) %>%
+  stepAIC(trace = FALSE)
+summary(model)
+
+
+```
+
+
+
